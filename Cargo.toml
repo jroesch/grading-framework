@@ -1,0 +1,17 @@
+[package]
+
+name = "grading-framework"
+version = "0.0.1"
+authors = ["Jared Roesch <roeschinc@gmail.com>"]
+
+[dependencies]
+rustc-serialize = "*"
+docopt = "*"
+docopt_macros = "*"
+toml = "*"
+csv = "*"
+threadpool = "*"
+
+[[bin]]
+name = "grade"
+path = "src/main.rs"
