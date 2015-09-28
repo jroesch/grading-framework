@@ -11,6 +11,8 @@ docopt_macros = "*"
 toml = "*"
 csv = "*"
 threadpool = "*"
+log = "*"
+env_logger = "*"
 
 [[bin]]
 name = "grade"

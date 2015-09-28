@@ -3,6 +3,9 @@
 #![feature(core)]
 #![feature(path_ext)]
 
+#[macro_use]
+extern crate log;
+extern crate env_logger;
 extern crate core;
 extern crate csv;
 extern crate rustc_serialize;
@@ -13,10 +16,11 @@ extern crate toml;
 use std::io;
 use std::io::Read;
 use std::env::{set_current_dir, current_dir, args};
-use std::fs::{File, read_dir, OpenOptions};
+use std::fs::{read_dir, OpenOptions};
 use std::process;
 use std::process::Command;
 use std::fs::PathExt;
+use std::io::{Error, ErrorKind};
 use core::slice::SliceExt;
 use std::sync::mpsc::channel;
 use threadpool::ThreadPool;
@@ -35,6 +39,19 @@ Options:
   -n COUNT         Truncate the output to LINE_COUNT
   -t TEMPLATE      Use a CSV template file
 ", flag_n: Option<usize>, flag_t: Option<String>);
+
+fn main() {
+    env_logger::init().unwrap();
+
+    let args: Args = Args::docopt()
+        .decode()
+        .unwrap_or_else(|e| e.exit());
+
+    match Grader::new(args).run() {
+        Err(e) => println!("{}", e),
+        Ok(()) => {}
+    }
+}
 
 fn in_directory<F>(path: &Path, block: F)
     where F : Fn() {
@@ -56,7 +73,7 @@ fn copy_grading_materials(args: &Args, files: Vec<PathBuf>) -> io::Result<()> {
 
     match cp.spawn() {
         Err(e) => panic!("Copying grading materials to {:?} failed with {}", working_path, e),
-        Ok(mut process) => { process.wait(); Ok(()) }
+        Ok(mut process) => { try!(process.wait())   ; Ok(()) }
     }
 }
 
@@ -75,7 +92,7 @@ struct Entry {
 
 impl Entry {
     fn from_readme(readme_path : &Path) -> io::Result<Entry> {
-        println!("Constructing Entry from README: {:?}", readme_path);
+        debug!("from_readme: constructing Entry from README:\n{:?}", readme_path);
         let mut readme = try!(OpenOptions::new()
             .read(true)
             .create(true)
@@ -89,7 +106,7 @@ impl Entry {
             None => Ok(Entry::parse_error()),
             Some(table) => {
                 let empty_string = "error";
-                println!("{:?}", table);
+                debug!("Entry::from_readme: parsed README into a table {:?}", table);
 
                 Ok(Entry {
                     username: table.get("username").and_then(|v| v.as_str()).unwrap_or(empty_string).to_string(),
@@ -118,17 +135,6 @@ impl Entry {
             letter_grade: "".to_string(),
             late_days: "".to_string()
         }
-    }
-}
-
-fn main() {
-    let args: Args = Args::docopt()
-        .decode()
-        .unwrap_or_else(|e| e.exit());
-
-    match Grader::new(args).run() {
-        Err(e) => println!("{}", e),
-        Ok(()) => {}
     }
 }
 
@@ -163,7 +169,7 @@ impl Grader {
 
         let total = submissions.len();
 
-        let pool = ThreadPool::new(4);
+        let pool = ThreadPool::new(2);
 
         for assignment in submissions {
             // println!("{:?}", assignment);
@@ -178,7 +184,11 @@ impl Grader {
                     let username =
                         clean_username(assignment.file_name().unwrap().to_str().unwrap());
 
-                    println!("Username cleaning {:?} to {}", assignment, username);
+                    debug!("run: performing username cleaning on {:?} with result: {}",
+                        assignment,
+                        username);
+
+                    println!("processing {}", username);
 
                     let required_materials =
                         read_dir(&Path::new(&args.arg_material_path.clone()))
@@ -186,14 +196,14 @@ impl Grader {
                         .map(|s| PathBuf::from(s.unwrap().path().into_os_string().to_str().unwrap()))
                         .collect();
 
-                    println!("Materials: {:?}", required_materials);
+                    debug!("run: found grading materials {:?}", required_materials);
 
                     copy_grading_materials(&args, required_materials).unwrap();
 
                     // add timeout support here
                     let stdout = Command::new(args.arg_command.clone())
                         .output().unwrap_or_else(|e| {
-                            panic!("Grader failed on: {}", e)
+                            panic!("run: failed attempting to execute command {}", e)
                         }).stdout;
 
                     let buffered_stdout = BufReader::new(Cursor::new(stdout));
@@ -209,36 +219,51 @@ impl Grader {
                         result.push_str("\n")
                     }
 
-                    tx.clone().send(Assignment {
+                    let result = tx.clone().send(Assignment {
                         path: path.clone(),
                         username: username,
                         result: result
                     });
+
+                    match result {
+                        Err(e) => panic!("failure sending: {:?}", e),
+                        Ok(_)  => ()
+                    }
                 });
             });
         }
 
-        let mut writer = csv::Writer::from_file(&Path::new("grading.csv")).unwrap();
+        let mut writer = csv::Writer::from_file(wd.join("grading.csv")).unwrap();
 
         for assignment in rx.iter().take(total) {
-            println!("Attempting to update {} with {}", assignment.username, assignment.result);
+            debug!("run: received result, updating:\n{}\nwith:\n{}", assignment.username, assignment.result);
 
             let mut student = match user_map.remove(&assignment.username) {
                 None => {
                     try!(Entry::from_readme(&assignment.path))
                 },
-                Some(mut e) => e
+                Some(e) => e
             };
 
             student.username = assignment.username;
             student.grader_output = assignment.result;
 
-            writer.encode(student.clone());
-            writer.flush();
+            try!(match writer.encode(student.clone()) {
+                Err(e) => Err(Error::new(ErrorKind::Other, format!("encoding error: {}", e))),
+                Ok(v) => Ok(v)
+            });
+
+            try!(match writer.flush() {
+                Err(e) => Err(Error::new(ErrorKind::Other, format!("encoding error: {}", e))),
+                Ok(v) => Ok(v)
+            });
         }
 
         for user in user_map.values() {
-            writer.encode(user);
+            try!(match writer.encode(user) {
+                Err(e) => Err(Error::new(ErrorKind::Other, format!("encoding error: {}", e))),
+                Ok(v) => Ok(v)
+            });
         }
         // let mut writer = csv::Writer::from_file(&Path::new("grading.output"));
         //let mut values: Vec<_> = user_map.values().collect();
@@ -247,7 +272,8 @@ impl Grader {
         //writer.encode(entry);
         //}
 
-        println!("At the end of the grader!");
+        debug!("run: finished processing all results");
+
         Ok(())
     }
 
@@ -281,4 +307,3 @@ struct Assignment {
     username: String,
     result: String
 }
-
