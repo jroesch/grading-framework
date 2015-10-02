@@ -7,7 +7,6 @@ authors = ["Jared Roesch <roeschinc@gmail.com>"]
 [dependencies]
 rustc-serialize = "*"
 docopt = "*"
-docopt_macros = "*"
 toml = "*"
 csv = "*"
 threadpool = "*"

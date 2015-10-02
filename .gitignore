@@ -1,2 +1,10 @@
+# Cargo-related build components
 /target
 /Cargo.lock
+
+# Emacs files
+*~
+\#*\#
+
+# Mac stuff
+.DS_Store

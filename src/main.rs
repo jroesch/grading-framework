@@ -1,36 +1,31 @@
-#![feature(plugin)]
-#![plugin(docopt_macros)]
-#![feature(core)]
-#![feature(path_ext)]
-
 #[macro_use]
+
 extern crate log;
 extern crate env_logger;
-extern crate core;
 extern crate csv;
 extern crate rustc_serialize;
 extern crate docopt;
 extern crate threadpool;
 extern crate toml;
 
-use std::io;
-use std::io::Read;
+mod dir;
+
+use std::collections::HashMap;
 use std::env::{set_current_dir, current_dir, args};
 use std::fs::{read_dir, OpenOptions};
+use std::io;
+use std::io::{BufRead, BufReader, Cursor, Error, ErrorKind, Read};
+use std::path::{Path, PathBuf};
 use std::process;
 use std::process::Command;
-use std::fs::PathExt;
-use std::io::{Error, ErrorKind};
-use core::slice::SliceExt;
 use std::sync::mpsc::channel;
-use threadpool::ThreadPool;
-use std::io::BufReader;
-use std::io::BufRead;
-use std::io::Cursor;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 
-docopt!(Args derive Debug Clone, "
+use docopt::Docopt;
+use threadpool::ThreadPool;
+
+use dir::IsDir;
+
+const USAGE: &'static str = "
 Usage: grade [-n NUM] [-t TEMPLATE] <material-path> <command>
        grade --help
 
@@ -38,13 +33,21 @@ Options:
   -h, --help       Show this message.
   -n COUNT         Truncate the output to LINE_COUNT
   -t TEMPLATE      Use a CSV template file
-", flag_n: Option<usize>, flag_t: Option<String>);
+";
+
+#[derive(Debug, Clone, RustcDecodable)]
+struct Args {
+    pub flag_n: Option<usize>,
+    pub flag_t: Option<String>,
+    pub arg_material_path: String,
+    pub arg_command: String
+}
 
 fn main() {
     env_logger::init().unwrap();
 
-    let args: Args = Args::docopt()
-        .decode()
+    let args: Args = Docopt::new(USAGE)
+        .and_then(|d| d.decode())
         .unwrap_or_else(|e| e.exit());
 
     match Grader::new(args).run() {
