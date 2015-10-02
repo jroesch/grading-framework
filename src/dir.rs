@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use std::fs::metadata;
+use std::path::{Path, PathBuf};
 
 pub trait IsDir {
     fn is_dir(&self) -> bool;
