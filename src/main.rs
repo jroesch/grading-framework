@@ -9,23 +9,21 @@ extern crate threadpool;
 extern crate toml;
 
 mod dir;
-use dir::IsDir;
 
-use std::io;
-use std::io::Read;
+use std::collections::HashMap;
 use std::env::{set_current_dir, current_dir, args};
 use std::fs::{read_dir, OpenOptions};
+use std::io;
+use std::io::{BufRead, BufReader, Cursor, Error, ErrorKind, Read};
+use std::path::{Path, PathBuf};
 use std::process;
 use std::process::Command;
-use std::io::{Error, ErrorKind};
 use std::sync::mpsc::channel;
-use threadpool::ThreadPool;
-use std::io::BufReader;
-use std::io::BufRead;
-use std::io::Cursor;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+
 use docopt::Docopt;
+use threadpool::ThreadPool;
+
+use dir::IsDir;
 
 const USAGE: &'static str = "
 Usage: grade [-n NUM] [-t TEMPLATE] <material-path> <command>
